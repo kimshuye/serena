@@ -208,6 +208,7 @@ pylint.html
 
 # Docker-mounted Serena config (machine-specific state, runtime logs/memories/news)
 /config/
+/config-agy/
 
 # clojure-lsp temporary files
 .calva/
