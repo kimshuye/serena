@@ -64,13 +64,13 @@ services:
       - serena
       - start-mcp-server
       - --transport
-      - sse
+      - streamable-http
       - --port
       - "9121"
       - --host
       - 0.0.0.0
       - --context
-      - oaicompat-agent
+      - ide
 
 volumes:
   serena-config:
