@@ -1,21 +1,80 @@
 services:
   serena:
     image: serena:latest
-    # To work with projects, you must mount them into /workspace/ in the container:
-    # volumes:
-      # - ./my-project:/workspace/my-project
-      # - /path/to/another/project:/workspace/another-project
+    # image: mekayelanik/serena-mcp
     build:
       context: ./
       dockerfile: Dockerfile
-      target: production
+      # target: production
     ports:
-      - "127.0.0.1:${SERENA_PORT:-9121}:9121"
-      - "127.0.0.1:${SERENA_DASHBOARD_PORT:-24282}:24282"
+      - "${SERENA_PORT:-9121}:9121"
+      - "${SERENA_DASHBOARD_PORT:-24282}:24282"
+    # To work with projects, you must mount them into /workspace/ in the container:
+    volumes:
+      # - ./my-project:/workspace/my-project
+      # - /home/sun/projects/serena:/workspace/serena:rw
+      # - /path/to/another/project:/workspace/another-project
+      - /home/sun/projects/s-social:/workspace/s-social:rw
+      - ./config:/workspaces/serena/config:rw
+      - serena-config:/config
+      - serena-cache:/home/serena/.cache
     environment:
+      - PORT=9121
+      - PUID=1000
+      - PGID=1000
+      - TZ=Asia/Bangkok
+      - PROTOCOL=SHTTP
+      - SERENA_PROJECT=/data
+      - SERENA_CONTEXT=desktop-app
+      - SERENA_TRANSPORT=stdio
+      - SERENA_LOG_LEVEL=INFO
+      - ENABLE_HTTPS=false
+      - HTTP_VERSION_MODE=auto
+      # mcp-proxy session model. Stateful by default — one stdio child shared
+      # across all sessions (multiplexed via JSON-RPC ids). Set to "true" only
+      # if full per-request isolation is required (memory-hostile).
+      - MCP_PROXY_STATELESS=false
+      # Cap virtual memory of the Serena stdio child (MiB; 0 disables)
+      - SERENA_MAX_MEM_MB=4096
+      # HAProxy concurrency caps (0 disables) — bound burst-spawn risk
+      - HAPROXY_FRONTEND_MAXCONN=64
+      - HAPROXY_SERVER_MAXCONN=16
+      # Optional: require Bearer token auth at HAProxy layer
+      # - API_KEY=replace-with-strong-secret
+      # Optional: CORS origins
+      # - CORS=*
       - SERENA_DOCKER=1
+    # Drop root at runtime so files written into the mounted config dir stay
+    # owned by PUID/PGID (1000) instead of root. node/uv live under /root, so we
+    # make them traversable first, then exec as uid 1000 via setpriv.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        source /workspaces/serena/.venv/bin/activate
+        chmod 711 /root
+        chmod -R a+rX /root/.nvm /root/.local 2>/dev/null || true
+        mkdir -p /home/serena
+        chown -R 1000:1000 /home/serena /workspaces/serena/config 2>/dev/null || true
+        export HOME=/home/serena
+        exec setpriv --reuid=1000 --regid=1000 --clear-groups "$@"
+      - ""
     command:
-      - "uv run --directory . serena-mcp-server --transport sse --port 9121 --host 0.0.0.0"
-      # Alternatively add further arguments, e.g. a context
-      # - "uv run --directory . serena-mcp-server --transport sse --port 9121 --host 0.0.0.0 --context ide"
+      - serena
+      - start-mcp-server
+      - --transport
+      - sse
+      - --port
+      - "9121"
+      - --host
+      - 0.0.0.0
+      - --context
+      - oaicompat-agent
+
+volumes:
+  serena-config:
+    driver: local
+  serena-cache:
+    driver: local
 

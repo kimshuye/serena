@@ -206,6 +206,9 @@ pylint.html
 /agent-ui
 /test/**/.serena
 
+# Docker-mounted Serena config (machine-specific state, runtime logs/memories/news)
+/config/
+
 # clojure-lsp temporary files
 .calva/
 .clj-kondo/
