@@ -1,0 +1,42 @@
+[Unit]
+Description=Serena MCP Server (Streamable HTTP mode, host)
+Documentation=https://oraios.github.io/serena/
+After=network.target
+
+[Service]
+Type=simple
+User=sun
+Group=sun
+
+# ใช้ config ที่มีอยู่ใน /home/sun/projects/serena/config
+# SERENA_HOME ชี้ให้ serena หา serena_config.yml จาก directory นี้
+Environment=SERENA_HOME=/home/sun/projects/serena/config
+Environment=HOME=/home/sun
+
+# PATH ต้องรวม ~/.local/bin เพื่อให้หา serena binary ได้
+Environment=PATH=/home/sun/.local/bin:/usr/local/bin:/usr/bin:/bin
+
+# รัน serena ใน streamable-http mode ที่ port 9122
+# (port 9121 ถูกใช้โดย serena-serena-1 ใน compose.yaml)
+# ไม่ระบุ --project ที่ startup เพื่อหลีกเลี่ยงปัญหา permission ของ /home/sun/projects/.serena
+# ChatGPT จะ activate project ผ่าน MCP tool (activate_project) แทน
+ExecStart=/home/sun/.local/bin/serena start-mcp-server \
+    --transport streamable-http \
+    --host 0.0.0.0 \
+    --port 9122 \
+    --context chatgpt \
+    --enable-web-dashboard false
+
+Restart=always
+RestartSec=5s
+
+# Working directory ในโปรเจกต์ serena
+WorkingDirectory=/home/sun/projects/serena
+
+# Logging ไปที่ journal
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=serena-mcp
+
+[Install]
+WantedBy=multi-user.target
