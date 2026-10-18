@@ -2,6 +2,8 @@
 Description=Serena MCP Server (Streamable HTTP mode, host)
 Documentation=https://oraios.github.io/serena/
 After=network.target
+# ต้องเริ่มก่อน Docker containers ที่ depend on serena-mcp
+# (Docker daemon เองเริ่มหลัง network แต่ containers ใน compose เริ่มตาม policy ของตัวเอง)
 
 [Service]
 Type=simple
@@ -18,8 +20,9 @@ Environment=PATH=/home/sun/.local/bin:/usr/local/bin:/usr/bin:/bin
 
 # รัน serena ใน streamable-http mode ที่ port 9122
 # (port 9121 ถูกใช้โดย serena-serena-1 ใน compose.yaml)
-# ไม่ระบุ --project ที่ startup เพื่อหลีกเลี่ยงปัญหา permission ของ /home/sun/projects/.serena
-# ChatGPT จะ activate project ผ่าน MCP tool (activate_project) แทน
+# ไม่ระบุ --project เพื่อหลีกเลี่ยง PermissionError บน /home/sun/projects/.serena/project.yml
+# (ไฟล์นั้นเป็น root:root เพราะถูกสร้างโดย Docker container ก่อนหน้า)
+# ChatGPT activate project ผ่าน MCP tool (activate_project) เองได้
 ExecStart=/home/sun/.local/bin/serena start-mcp-server \
     --transport streamable-http \
     --host 0.0.0.0 \
@@ -30,8 +33,18 @@ ExecStart=/home/sun/.local/bin/serena start-mcp-server \
 Restart=always
 RestartSec=5s
 
-# Working directory ในโปรเจกต์ serena
-WorkingDirectory=/home/sun/projects/serena
+# หลัง serena-mcp port 9122 เปิดแล้ว ให้ restart tunnel-client
+# เพื่อให้ tunnel probe MCP ใหม่และขึ้นสถานะ ready
+ExecStartPost=/bin/bash -c '\
+  for i in $(seq 1 30); do \
+    nc -z 127.0.0.1 9122 2>/dev/null && break; \
+    sleep 1; \
+  done; \
+  sleep 1; \
+  docker restart serena-tunnel-client 2>/dev/null || true'
+
+# Working directory ในโปรเจกต์ s-social
+WorkingDirectory=/home/sun/projects/s-social
 
 # Logging ไปที่ journal
 StandardOutput=journal
