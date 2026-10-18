@@ -1,0 +1,38 @@
+[Unit]
+Description=OpenAI Secure MCP Tunnel client for Serena
+Documentation=https://developers.openai.com/api/docs/guides/secure-mcp-tunnels
+After=network-online.target docker.service
+Wants=network-online.target
+# รอให้ Docker พร้อมก่อน เพราะ serena-mcp รันใน Docker
+Requires=docker.service
+
+[Service]
+Type=simple
+User=sun
+Group=sun
+
+# อ่านค่าจาก .env (EnvironmentFile อ่านได้แค่ KEY=VALUE แบบง่ายๆ ถ้ามีเครื่องหมายพิเศษ
+# ต้องใส่ใน Environment โดยตรง แต่ค่าใน .env ของเราเป็น KEY=VALUE ธรรมดา)
+EnvironmentFile=/home/sun/projects/serena/.env
+
+# MCP server URL — serena-mcp ใน Docker, expose ที่ 127.0.0.1:9122
+Environment=MCP_SERVER_URL=http://localhost:9122/mcp
+Environment=LOG_LEVEL=info
+Environment=HEALTH_LISTEN_ADDR=127.0.0.1:8080
+
+# tunnel-client binary
+ExecStart=/home/sun/.local/bin/tunnel-client run
+
+# Auto-restart ถ้าหยุด (ไม่ว่าจะ crash หรือ exit อื่น) ยกเว้น systemctl stop
+Restart=always
+RestartSec=5s
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/sun/.local/share/tunnel-client
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
