@@ -1,0 +1,98 @@
+name: serena-chatgpt
+
+# ============================================================================
+# Serena MCP Server + OpenAI Secure MCP Tunnel for ChatGPT (web) access
+# ============================================================================
+# เป้าหมาย: ให้ ChatGPT บนเว็บเข้าถึง workspace ในเครื่องผ่าน OpenAI Secure MCP Tunnel
+#
+# ทำไมใช้ Secure MCP Tunnel แทน Cloudflare Quick Tunnel:
+#   - ไม่เปิด port สาธารณะ — tunnel-client ติดต่อออกไป api.openai.com เท่านั้น
+#   - ChatGPT เรียกผ่าน OpenAI-hosted endpoint (/v1/mcp/{tunnel_id}) ไม่ต้องเปิดเผย URL
+#   - ไม่ต้องใช้ mcpo — tunnel-client พูด MCP โดยตรง (Streamable HTTP)
+#
+# การแก้ ImportError ที่เคยเจอกับ mcpo:
+#   - mcpo ยัง import `streamablehttp_client` (ไม่มี underscore) แต่ mcp 2.x เปลี่ยนชื่อ
+#   - แต่ละ stack นี้ไม่ใช้ mcpo แล้ว จึงไม่มีปัญหานี้
+#
+# ขั้นตอน:
+#   1. สร้าง tunnel ที่ https://platform.openai.com/settings/organization/tunnels
+#   2. สร้าง Runtime API key ที่ https://platform.openai.com/settings/organization/api-keys
+#      (ต้องมีสิทธิ Tunnels Read + Use)
+#   3. ใส่ค่าในไฟล์ .env (ดู .env.example)
+#   4. docker compose -f docker-compose.chatgpt.yml up -d
+#   5. ตรวจสอบสถานะ tunnel-client:
+#        docker compose -f docker-compose.chatgpt.yml logs tunnel-client
+#        ดูบรรทัด "ready" และ "polling"
+#   6. ใน ChatGPT: ไปที่ Plugins → Add custom MCP server → Connection: Tunnel
+#      เลือก tunnel ที่สร้างไว้ → ตั้งค่า authentication → Create
+#
+# ข้อจำกัด:
+#   - tunnel-client ต้องสามารถติดต่อออกไป api.openai.com:443 ได้
+#   - ใช้ stdio mode ได้แค่ 1 instance ต่อ tunnel ID (เราใช้ HTTP จึงไม่จำกัด)
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # Serena MCP Server (Streamable HTTP mode)
+  # --------------------------------------------------------------------------
+  # รัน serena เป็น HTTP server ที่ /mcp endpoint
+  # tunnel-client จะ forward MCP requests มาที่นี่
+  serena-mcp:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm
+    container_name: serena-mcp
+    restart: unless-stopped
+    environment:
+      - TZ=Asia/Bangkok
+    volumes:
+      # Mount โฟลเดอร์ workspace ทั้งหมดเข้าไป (read-write)
+      # เปลี่ยน path ซ้ายมือใน .env ถ้า workspace อยู่ที่อื่น
+      - ${WORKSPACE_DIR:-/home/sun/projects}:/workspace:rw
+      # Mount Serena source เข้าไปด้วย (ใช้เวอร์ชันล่าสุดจาก repo แทน PyPI)
+      - /home/sun/projects/serena:/serena-src:rw
+      # เก็บ uv cache ข้าม restart เพื่อเริ่มตัวเร็ว
+      - uv-cache:/root/.cache/uv
+    # รัน serena ใน streamable-http mode ที่ port 9121, host 0.0.0.0
+    # endpoint จะอยู่ที่ http://serena-mcp:9121/mcp (default path ของ mcp library)
+    command: >
+      sh -c "uvx --from /serena-src serena start-mcp-server --transport streamable-http --host 0.0.0.0 --port 9121 --context chatgpt --project /workspace"
+    healthcheck:
+      # ตรวจว่า MCP streamable-http endpoint ตอบกลับถูกต้อง
+      # ใช้ POST request พร้อม Accept header ที่ MCP กำหนด
+      test: ["CMD", "sh", "-c", "curl -fsS -o /dev/null -X POST http://localhost:9121/mcp -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"healthcheck\",\"version\":\"1.0\"}}}' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      # uvx ต้องโหลด serena + language server ครั้งแรก ใช้เวลานาน
+      start_period: 120s
+
+  # --------------------------------------------------------------------------
+  # OpenAI Secure MCP Tunnel client
+  # --------------------------------------------------------------------------
+  # เชื่อมต่อ outbound ไป api.openai.com และ forward MCP requests มาที่ serena-mcp
+  # ดูสถานะได้ที่ http://localhost:8080/ui (admin UI)
+  tunnel-client:
+    image: ghcr.io/openai/tunnel-client:latest
+    container_name: serena-tunnel-client
+    restart: unless-stopped
+    depends_on:
+      serena-mcp:
+        condition: service_healthy
+    environment:
+      # Runtime API key จาก OpenAI Platform (สิทธิ Tunnels Read + Use)
+      - CONTROL_PLANE_API_KEY=${CONTROL_PLANE_API_KEY}
+      # Tunnel ID จาก Platform tunnel settings
+      - CONTROL_PLANE_TUNNEL_ID=${CONTROL_PLANE_TUNNEL_ID}
+      # URL ของ MCP server (serena streamable-http)
+      - MCP_SERVER_URL=http://serena-mcp:9121/mcp
+      # ตั้งค่า logging
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      # admin UI / health endpoint (loopback only ภายใน container)
+      - HEALTH_LISTEN_ADDR=127.0.0.1:8080
+    # ไม่ publish port — tunnel-client ไม่ต้องการ inbound
+    # ถ้าต้องการดู admin UI จาก host ใช้: docker exec serena-tunnel-client ...
+    # หรือเปลี่ยน HEALTH_LISTEN_ADDR เป็น :8080 และเพิ่ม ports: ["8080:8080"]
+
+volumes:
+  uv-cache:
+    driver: local

@@ -202,6 +202,7 @@ pylint.html
 
 # Serena-specific
 /*.yml
+!docker-compose.chatgpt.template.yml
 !*.template.yml
 /agent-ui
 /test/**/.serena
