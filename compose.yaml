@@ -72,68 +72,9 @@ services:
       - --context
       - ide
 
-  serena-agy:
-    image: serena:latest
-    container_name: serena-agy
-    build:
-      context: ./
-      dockerfile: Dockerfile
-    ports:
-      - "${SERENA_AGY_PORT:-19121}:9121"
-      - "${SERENA_AGY_DASHBOARD_PORT:-24382}:24282"
-    volumes:
-      - ./config-agy:/workspaces/serena/config:rw
-      - serena-agy-config:/config
-      - serena-agy-cache:/home/serena/.cache
-    environment:
-      - PORT=9121
-      - PUID=1000
-      - PGID=1000
-      - TZ=Asia/Bangkok
-      - PROTOCOL=SHTTP
-      - SERENA_PROJECT=/data
-      - SERENA_CONTEXT=antigravity
-      - SERENA_TRANSPORT=stdio
-      - SERENA_LOG_LEVEL=INFO
-      - ENABLE_HTTPS=false
-      - HTTP_VERSION_MODE=auto
-      - MCP_PROXY_STATELESS=false
-      - SERENA_MAX_MEM_MB=4096
-      - HAPROXY_FRONTEND_MAXCONN=64
-      - HAPROXY_SERVER_MAXCONN=16
-      - SERENA_DOCKER=1
-    entrypoint:
-      - /bin/bash
-      - -c
-      - |
-        set -e
-        source /workspaces/serena/.venv/bin/activate
-        chmod 711 /root
-        chmod -R a+rX /root/.nvm /root/.local 2>/dev/null || true
-        mkdir -p /home/serena
-        chown -R 1000:1000 /home/serena /workspaces/serena/config 2>/dev/null || true
-        export HOME=/home/serena
-        exec setpriv --reuid=1000 --regid=1000 --clear-groups "$@"
-      - ""
-    command:
-      - serena
-      - start-mcp-server
-      - --transport
-      - streamable-http
-      - --port
-      - "9121"
-      - --host
-      - 0.0.0.0
-      - --context
-      - antigravity
-
 volumes:
   serena-config:
     driver: local
   serena-cache:
-    driver: local
-  serena-agy-config:
-    driver: local
-  serena-agy-cache:
     driver: local
 
